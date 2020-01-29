@@ -1,0 +1,82 @@
+---
+title: "Eucalyptus in San Francisco"
+author: "Susannah Cowtan"
+date: "28 January 2020"
+output: bookdown::html_document2
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r libraries}
+library(scales)
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(readr))
+library(stringr)
+library(forcats)
+library(ggplot2)
+library(gghighlight)
+```
+
+```{r setup_ggplot, echo=FALSE}
+# Custom colours (colourblind friendly) -
+# omit colours nearest black and white
+prof_colours <- viridis_pal(option = "inferno")(11)
+# Look of ggplot for single graphs
+theme_prof <- function (base_size = 10, base_family = "") {
+  theme_bw(base_size = base_size, base_family = base_family) %+replace%
+    theme(
+      axis.text = element_text(size = 10),
+      axis.title = element_text(size = 12),
+      axis.title.x = element_text(margin = margin(t = 12)),
+      axis.title.y = element_text(margin = margin(l = 0, r = 12),
+        angle = 90)
+    )
+}
+theme_set(theme_prof())
+```
+
+```{r read_data}
+# Link does not work for tidytyesdayR::tt_load week 5
+sf_trees_df <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-01-28/sf_trees.csv', col_types = readr::cols())
+```
+
+```{r species_name}
+sf_trees_df <- sf_trees_df %>%
+  # This covers most cases
+  mutate(species_name = word(species, 1)) %>%
+  # Some cultivars are "x Speciesname subspecies"
+  mutate(species_name = ifelse(species_name != "x", 
+                               species_name, 
+                               paste(word(species, 1:2), collapse = " "))) %>%
+  mutate(species_name = as.factor(species_name)) %>%
+  # Inconsistent coding of unknowns
+  mutate(species_name = fct_recode(species_name, 
+                                   Unknown = "::", Unknown = "Tree(s)"))
+```
+
+Eucalyptus are very popular in San Francisco. However, they are highly flammable, which
+is not desirable in a city prone to drought and earthquakes.
+
+```{r no_eucalypts}
+no_eucalypts <- sf_trees_df %>%
+  filter(species_name == "Eucalyptus") %>%
+  nrow()
+```
+
+```{r speciesCount, fig.height = 6, fig.cap = paste("Tree species in San Francisco, showing that", no_eucalypts, "of the identified trees are Eucalyptus")}
+sf_trees_df %>%
+  select(species_name) %>%
+  mutate(species_name = fct_infreq(species_name)) %>%
+  mutate(species_name = fct_lump_min(species_name, 1500)) %>%
+  mutate(species_name = fct_relevel(species_name, "Unknown", after = Inf)) %>%
+  mutate(species_name = fct_rev(species_name)) %>%
+  ggplot(aes(x = species_name)) +
+    geom_bar(fill = prof_colours[7]) +
+    gghighlight(species_name == "Eucalyptus", 
+                label_key = species_name, use_group_by = FALSE) +
+    labs(x = "Species of tree", y = "Number of trees") +
+    coord_flip() 
+```
+
