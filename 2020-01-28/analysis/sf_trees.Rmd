@@ -11,8 +11,13 @@ knitr::opts_chunk$set(echo = FALSE)
 
 ```{r libraries}
 library(scales)
+library(curl)
+suppressPackageStartupMessages(library(here))
+suppressPackageStartupMessages(library(sf))
 suppressPackageStartupMessages(library(dplyr))
 suppressPackageStartupMessages(library(readr))
+library(skimr)
+suppressPackageStartupMessages(library(lubridate))
 library(stringr)
 library(forcats)
 library(ggplot2)
@@ -23,6 +28,7 @@ library(gghighlight)
 # Custom colours (colourblind friendly) -
 # omit colours nearest black and white
 prof_colours <- viridis_pal(option = "inferno")(11)
+fire <- "#DD513AFF"
 # Look of ggplot for single graphs
 theme_prof <- function (base_size = 10, base_family = "") {
   theme_bw(base_size = base_size, base_family = base_family) %+replace%
@@ -35,11 +41,18 @@ theme_prof <- function (base_size = 10, base_family = "") {
     )
 }
 theme_set(theme_prof())
+
+print(prof_colours[7])
 ```
 
 ```{r read_data}
 # Link does not work for tidytyesdayR::tt_load week 5
 sf_trees_df <- readr::read_csv('https://raw.githubusercontent.com/rfordatascience/tidytuesday/master/data/2020/2020-01-28/sf_trees.csv', col_types = readr::cols())
+```
+
+```{r skim}
+# Pretty summary statistics
+skimr::skim(sf_trees_df)
 ```
 
 ```{r species_name}
@@ -60,23 +73,93 @@ Eucalyptus are very popular in San Francisco. However, they are highly flammable
 is not desirable in a city prone to drought and earthquakes.
 
 ```{r no_eucalypts}
-no_eucalypts <- sf_trees_df %>%
-  filter(species_name == "Eucalyptus") %>%
-  nrow()
+species_count_df <- sf_trees_df %>%
+  # Want only identified trees
+  filter(species_name != "Unknown") %>%
+  # Tibble of species name and incident count
+  dplyr::count(species_name)
+
+no_eucalypts <- 
+  species_count_df[which(species_count_df$species_name == "Eucalyptus"),]$n
+
+perc_eucalypts <- 100 * no_eucalypts / sum(species_count_df$n)
 ```
 
-```{r speciesCount, fig.height = 6, fig.cap = paste("Tree species in San Francisco, showing that", no_eucalypts, "of the identified trees are Eucalyptus")}
+```{r speciesCount, fig.height = 6, fig.cap = paste0("Tree species in San Francisco, showing that ", no_eucalypts, " (", round(perc_eucalypts, 1), "%) of the identified trees are Eucalyptus")}
 sf_trees_df %>%
   select(species_name) %>%
+  # Order factor by increasing frequency (no decreasing option available)
   mutate(species_name = fct_infreq(species_name)) %>%
+  # Lump species with fewer than 1500 entries together as "Other" at the end
   mutate(species_name = fct_lump_min(species_name, 1500)) %>%
+  # Move "Unknown" to the end
   mutate(species_name = fct_relevel(species_name, "Unknown", after = Inf)) %>%
+  # Reverse order so decreasing frequency now
   mutate(species_name = fct_rev(species_name)) %>%
   ggplot(aes(x = species_name)) +
-    geom_bar(fill = prof_colours[7]) +
+    geom_bar(fill = fire) +
+    # Only the Eucalyptus bar is coloured, the rest grey
     gghighlight(species_name == "Eucalyptus", 
                 label_key = species_name, use_group_by = FALSE) +
-    labs(x = "Species of tree", y = "Number of trees") +
+    labs(x = "Tree species", y = "Number of trees") +
+    # Horizontal bars
     coord_flip() 
+```
+
+```{r map_wrangle}
+# Just want places for Eucalyptus
+map_df <- sf_trees_df %>%
+  select(species_name, latitude, longitude) %>%
+  filter(species_name == "Eucalyptus") %>%
+  # Can't map data without a location
+  filter(!is.na(latitude) & !is.na(longitude)) 
+```
+
+```{r sf_shapefile}
+# Thank you Philippe Massicotte :)
+
+# curl_download lets me get zip files, returns path of downloaded file
+sf_shapefile <- curl_download(
+  "https://data.sfgov.org/api/geospatial/pty2-tcw4?method=export&format=Shapefile",
+  destfile = tempfile(fileext = ".zip")
+)
+
+# Per-session temp directory (already exists)
+tmpdir <- tempdir()
+
+# Extract zipped files to temp directory
+sf_shapefile <- unzip(sf_shapefile, exdir = tmpdir)
+
+# Read simple features/layers from file
+sf_sf <- st_read(tmpdir, quiet = TRUE) %>%
+  mutate(name = as.character(name))
+
+## Make outline for map
+sf_outline <- sf_sf %>%
+  # Remove vertices from lines
+  # Getting warnings about inaccuracy with lat/long data, but result OK
+  # Curly brackets get suppressWarnings to work in a pipe
+  {suppressWarnings(st_simplify(.))} %>%
+  # Amalgamate geometries into one
+  st_union() %>%
+  # Draw line 0.001 deg away from outline of geometry
+  # Again with the lat/long warnings
+  {suppressWarnings(st_buffer(., dist = units::set_units(0.001, degree)))}
+```
+
+
+
+
+```{r display_map}
+
+p <- ggplot() +
+  geom_sf(
+    data = sf_outline,
+    color = "gray80",
+    fill = NA,
+    size = 0.75
+  ) 
+
+print(p)
 ```
 
