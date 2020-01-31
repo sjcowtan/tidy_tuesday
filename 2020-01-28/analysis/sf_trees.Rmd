@@ -41,8 +41,6 @@ theme_prof <- function (base_size = 10, base_family = "") {
     )
 }
 theme_set(theme_prof())
-
-print(prof_colours[7])
 ```
 
 ```{r read_data}
@@ -52,7 +50,7 @@ sf_trees_df <- readr::read_csv('https://raw.githubusercontent.com/rfordatascienc
 
 ```{r skim}
 # Pretty summary statistics
-skimr::skim(sf_trees_df)
+#skimr::skim(sf_trees_df)
 ```
 
 ```{r species_name}
